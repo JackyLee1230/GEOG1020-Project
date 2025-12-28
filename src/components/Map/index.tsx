@@ -6,12 +6,25 @@ import {
   ScaleControl
 } from 'react-leaflet';
 import { useEffect } from 'react';
+import styled from 'styled-components';
 import Earthquakes from './Earthquakes';
 import Legend from './Legend';
 import tectonicPlates from '../../PB2002_boundaries.json';
 import LocationMarker from './LocationMarker';
+import LatestEarthquakes from '../LatestEarthquakes';
+import MapController from './MapController';
 
-const mapHeight = { height: 'calc(100% - 64px)', marginTop: '64px' };
+const mapHeight = { height: 'calc(100vh - 64px)', marginTop: '64px' };
+
+const MapWrapper = styled.div`
+  width: 100%;
+  height: 100vh;
+  position: fixed;
+
+  @media only screen and (max-width: 768px) {
+    height: 100vh;
+  }
+`;
 
 const tileLayers = [
   {
@@ -104,8 +117,9 @@ export default function Map() {
   }, []);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'fixed' }}>
+    <MapWrapper>
       <MapContainer center={[0, 0]} zoom={3} style={mapHeight}>
+        <MapController />
         <LayersControl position="topright">
           {tileLayers.map(({ id, name, attribution, url, checked }) => (
             <LayersControl.BaseLayer key={id} name={name} checked={checked}>
@@ -124,6 +138,7 @@ export default function Map() {
         <ScaleControl />
         <Legend />
       </MapContainer>
-    </div>
+      <LatestEarthquakes />
+    </MapWrapper>
   );
 }

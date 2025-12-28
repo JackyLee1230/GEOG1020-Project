@@ -162,11 +162,12 @@ export default function NavBar() {
           size="xl"
           isOpen={modal}
           toggle={toggle}
-          style={{ zIndex: 9999999 }}>
+          style={{ zIndex: 9999999 }}
+          contentClassName="mobile-modal">
           <ModalHeader toggle={toggle}>
             GEOG1020 Individual Project By Lee Chi Ho
           </ModalHeader>
-          <ModalBody>
+          <ModalBody style={{ fontSize: '14px' }}>
             This project is developed with the following Tech Stack:
             <br />
             React
@@ -210,11 +211,12 @@ export default function NavBar() {
           size="xl"
           isOpen={modalAnalysis}
           toggle={toggleAnalysis}
-          style={{ zIndex: 9999999 }}>
+          style={{ zIndex: 9999999 }}
+          contentClassName="mobile-modal">
           <ModalHeader toggle={toggleAnalysis}>
             ANALYSIS: {data && data[2]} Earthquakes
           </ModalHeader>
-          <ModalBody>
+          <ModalBody style={{ padding: '10px' }}>
             {data && (
               <Carousel
                 interval={false}
@@ -250,16 +252,16 @@ export default function NavBar() {
       </NavbarBrand>
       <NavbarToggler onClick={() => setIsOpen(!isOpen)} />
       <Collapse isOpen={isOpen} navbar>
-        <Nav className="ml-auto" navbar>
-          <Button color="danger" size="normal" onClick={toggle}>
+        <Nav className="ml-auto" navbar style={{ gap: '8px' }}>
+          <Button color="danger" size="sm" onClick={toggle}>
             About This
           </Button>
-          <Button color="warning" size="normal" onClick={toggleAnalysis}>
+          <Button color="warning" size="sm" onClick={toggleAnalysis}>
             Analysis
           </Button>
           <Button
             color="success"
-            size="normal"
+            size="sm"
             onClick={() => {
               const l = document.getElementsByClassName(
                 'legend'

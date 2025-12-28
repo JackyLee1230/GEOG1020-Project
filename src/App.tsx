@@ -19,5 +19,38 @@ export default function App() {
 const GlobalStyle = createGlobalStyle`
   body {
     margin: 0;
+    overflow: hidden;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+  
+  @media only screen and (max-width: 768px) {
+    html {
+      font-size: 14px;
+    }
+    
+    .modal-dialog {
+      max-width: 95%;
+      margin: 10px auto;
+    }
+    
+    .modal-content {
+      font-size: 13px;
+    }
+    
+    .modal-body {
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    
+    .table {
+      font-size: 11px;
+    }
+    
+    canvas {
+      max-height: 300px !important;
+    }
   }
 `;
