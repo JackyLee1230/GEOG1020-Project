@@ -1,407 +1,740 @@
-import React, { useState, useMemo } from 'react';
-import styled from 'styled-components';
-import { useQuery } from '@tanstack/react-query';
-import { getEarthquakes } from '../../api/earthquakes';
-import { useStore } from '../../hooks';
-import { FeatureProps } from '../Map/Earthquakes';
+import { useMemo, useState } from 'react';
+import { Chart, registerables } from 'chart.js';
+import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import {
+  Download,
+  ExternalLink,
+  MapPinned,
+  Radar,
+  Siren,
+  TrendingUp,
+  Waves,
+  Zap
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+import {
+  extractRegion,
+  formatHKT,
+  getDepthCategory,
+  getDepthKm,
+  getMagnitude,
+  toEarthquakeCSV
+} from '../../lib/earthquake';
+import {
+  EarthquakeAnalytics,
+  EarthquakeFeature,
+  EarthquakeMetadata
+} from '../../types/earthquake';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../ui';
 
-const Panel = styled.div<{ isOpen: boolean }>`
-  position: fixed;
-  top: 64px;
-  right: ${({ isOpen }) => (isOpen ? '0' : '-400px')};
-  width: 400px;
-  max-width: 90vw;
-  height: calc(100vh - 64px);
-  background: white;
-  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
-  transition: right 0.3s ease-in-out;
-  z-index: 1000;
-  overflow-y: auto;
+Chart.register(...registerables);
 
-  @media only screen and (max-width: 768px) {
-    width: 100%;
-    right: ${({ isOpen }) => (isOpen ? '0' : '-100%')};
+type InsightTab = 'overview' | 'trends' | 'events';
+
+interface LatestEarthquakesProps {
+  isOpen: boolean;
+  metadata: EarthquakeMetadata | null;
+  events: EarthquakeFeature[];
+  allEventsCount: number;
+  analytics: EarthquakeAnalytics;
+  selectedEarthquakeId: string | null;
+  onSelectEarthquake: (feature: EarthquakeFeature) => void;
+}
+
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      labels: {
+        color: '#1e293b',
+        boxWidth: 12
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: { color: '#334155', maxRotation: 0, autoSkip: true },
+      grid: { color: 'rgba(148, 163, 184, 0.16)' }
+    },
+    y: {
+      ticks: { color: '#334155' },
+      grid: { color: 'rgba(148, 163, 184, 0.16)' }
+    }
   }
-`;
-
-const ToggleButton = styled.button<{ isOpen: boolean }>`
-  position: fixed;
-  top: 80px;
-  right: ${({ isOpen }) => (isOpen ? '400px' : '10px')};
-  z-index: 1001;
-  background: #007bff;
-  color: white;
-  border: none;
-  padding: 12px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  font-weight: bold;
-  transition: right 0.3s ease-in-out;
-
-  &:hover {
-    background: #0056b3;
-  }
-
-  @media only screen and (max-width: 768px) {
-    right: 10px;
-    top: 70px;
-    padding: 8px 12px;
-    font-size: 12px;
-  }
-`;
-
-const Header = styled.div`
-  padding: 20px;
-  background: #007bff;
-  color: white;
-  font-size: 20px;
-  font-weight: bold;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-
-  @media only screen and (max-width: 768px) {
-    padding: 15px;
-    font-size: 16px;
-  }
-`;
-
-const EarthquakeItem = styled.div`
-  padding: 15px;
-  border-bottom: 1px solid #e0e0e0;
-  cursor: pointer;
-  transition: background 0.2s;
-
-  &:hover {
-    background: #f5f5f5;
-  }
-
-  @media only screen and (max-width: 768px) {
-    padding: 12px;
-  }
-`;
-
-const Title = styled.div`
-  font-weight: bold;
-  font-size: 14px;
-  margin-bottom: 8px;
-  color: #333;
-
-  @media only screen and (max-width: 768px) {
-    font-size: 13px;
-  }
-`;
-
-const Detail = styled.div`
-  font-size: 12px;
-  color: #666;
-  margin: 4px 0;
-
-  @media only screen and (max-width: 768px) {
-    font-size: 11px;
-  }
-`;
-
-const MagnitudeBadge = styled.span<{ magnitude: number }>`
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-weight: bold;
-  font-size: 12px;
-  background: ${({ magnitude }) => {
-    if (magnitude < 3) return '#6FCCB4';
-    if (magnitude < 5) return '#C2CC49';
-    if (magnitude < 7) return '#C6652B';
-    return '#CC0103';
-  }};
-  color: white;
-  margin-right: 8px;
-`;
-
-const NoData = styled.div`
-  padding: 40px 20px;
-  text-align: center;
-  color: #999;
-  font-size: 14px;
-`;
-
-const FilterContainer = styled.div`
-  padding: 15px;
-  background: #f8f9fa;
-  border-bottom: 2px solid #dee2e6;
-  position: sticky;
-  top: 84px;
-  z-index: 9;
-
-  @media only screen and (max-width: 768px) {
-    padding: 12px;
-    top: 74px;
-  }
-`;
-
-const SearchInput = styled.input`
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 14px;
-  margin-bottom: 10px;
-
-  &:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-  }
-
-  @media only screen and (max-width: 768px) {
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-`;
-
-const Select = styled.select`
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 14px;
-  background: white;
-  cursor: pointer;
-
-  &:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-  }
-
-  @media only screen and (max-width: 768px) {
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-`;
-
-const FilterInfo = styled.div`
-  font-size: 12px;
-  color: #6c757d;
-  margin-top: 8px;
-  text-align: center;
-
-  @media only screen and (max-width: 768px) {
-    font-size: 11px;
-  }
-`;
-
-const USGSButton = styled.button`
-  background: #17a2b8;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: bold;
-  cursor: pointer;
-  margin-top: 8px;
-  transition: background 0.2s;
-
-  &:hover {
-    background: #138496;
-  }
-
-  @media only screen and (max-width: 768px) {
-    padding: 5px 10px;
-    font-size: 10px;
-  }
-`;
-
-const timeConverterToHKT = (time: number): string => {
-  const d = new Date(time);
-  const utc = d.getTime() + d.getTimezoneOffset() * 60000;
-  const nd = new Date(utc + 3600000 * 8);
-  return nd.toLocaleString();
 };
 
-export default function LatestEarthquakes() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLocation, setSelectedLocation] = useState('all');
-  const startTime = useStore((state) => state.startTime);
-  const setData = useStore((state) => state.setData);
+const formatCount = (value: unknown): string => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toLocaleString() : '0';
+};
 
-  const { data: earthquakes } = useQuery(['earthquakes', startTime, ''], () =>
-    getEarthquakes(startTime, setData)
+const percentile = (values: number[], rank: number): number => {
+  if (!values.length) return 0;
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * rank;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+
+  if (lower === upper) return sorted[lower];
+
+  const weight = index - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
+
+const standardDeviation = (values: number[], mean: number): number => {
+  if (!values.length) return 0;
+
+  const variance =
+    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+
+  return Math.sqrt(variance);
+};
+
+const correlation = (xValues: number[], yValues: number[]): number => {
+  if (!xValues.length || xValues.length !== yValues.length) return 0;
+
+  const xMean = xValues.reduce((sum, value) => sum + value, 0) / xValues.length;
+  const yMean = yValues.reduce((sum, value) => sum + value, 0) / yValues.length;
+
+  let numerator = 0;
+  let xSquared = 0;
+  let ySquared = 0;
+
+  for (let index = 0; index < xValues.length; index += 1) {
+    const xDiff = xValues[index] - xMean;
+    const yDiff = yValues[index] - yMean;
+    numerator += xDiff * yDiff;
+    xSquared += xDiff ** 2;
+    ySquared += yDiff ** 2;
+  }
+
+  const denominator = Math.sqrt(xSquared * ySquared);
+  if (!Number.isFinite(denominator) || denominator === 0) return 0;
+
+  return numerator / denominator;
+};
+
+const downloadFilteredCSV = (events: EarthquakeFeature[]) => {
+  const csvContent = toEarthquakeCSV(events);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute(
+    'download',
+    `earthquakes_filtered_${new Date().toISOString().slice(0, 10)}.csv`
+  );
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const metadataRows = (metadata: EarthquakeMetadata | null) => {
+  if (!metadata) return [];
+
+  return [
+    ['Feed title', metadata.title],
+    ['API version', metadata.api],
+    ['Server status', String(metadata.status)],
+    ['Feed event count', formatCount(metadata.count)],
+    ['Generated (HKT)', formatHKT(metadata.generated)]
+  ];
+};
+
+const getTabClassName = (activeTab: InsightTab, tab: InsightTab) => {
+  return cn(
+    'rounded-md border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors',
+    activeTab === tab
+      ? 'border-cyan-300 bg-cyan-50 text-cyan-700'
+      : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+  );
+};
+
+export default function LatestEarthquakes({
+  isOpen,
+  metadata,
+  events,
+  allEventsCount,
+  analytics,
+  selectedEarthquakeId,
+  onSelectEarthquake
+}: LatestEarthquakesProps) {
+  const [activeTab, setActiveTab] = useState<InsightTab>('overview');
+
+  const selectedEarthquake = useMemo(
+    () => events.find((event) => event.id === selectedEarthquakeId) ?? null,
+    [events, selectedEarthquakeId]
   );
 
-  const latestEarthquakes = earthquakes?.features
-    ? [...earthquakes.features]
-        .sort(
-          (a: FeatureProps, b: FeatureProps) =>
-            b.properties.time - a.properties.time
-        )
-        .slice(0, 200)
-    : [];
+  const dayChartData = useMemo(() => {
+    const windowed = analytics.byDay.slice(-14);
+    return {
+      labels: windowed.map((item) => item.label.slice(5)),
+      datasets: [
+        {
+          label: 'Events / day',
+          data: windowed.map((item) => item.count),
+          backgroundColor: 'rgba(14, 165, 233, 0.75)',
+          borderColor: 'rgba(14, 165, 233, 1)',
+          borderWidth: 1
+        }
+      ]
+    };
+  }, [analytics.byDay]);
 
-  // Extract unique locations from earthquakes
-  const uniqueLocations = useMemo(() => {
-    const locations = new Set<string>();
-    latestEarthquakes.forEach((eq: FeatureProps) => {
-      const place = eq.properties.place || 'Unknown Location';
-      // Extract the main location (usually after the last comma)
-      const parts = place.split(',');
-      const mainLocation =
-        parts.length > 1 ? parts[parts.length - 1].trim() : place.trim();
-      locations.add(mainLocation);
+  const magnitudeTrendData = useMemo(() => {
+    const byDayMagnitude = new Map<string, number[]>();
+
+    events.forEach((event) => {
+      const dayLabel = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC'
+      }).format(new Date(event.properties.time));
+      const current = byDayMagnitude.get(dayLabel) ?? [];
+      current.push(getMagnitude(event));
+      byDayMagnitude.set(dayLabel, current);
     });
-    return Array.from(locations).sort();
-  }, [latestEarthquakes]);
 
-  // Filter earthquakes based on search query and selected location
-  const filteredEarthquakes = useMemo(() => {
-    return latestEarthquakes.filter((eq: FeatureProps) => {
-      const place = (eq.properties.place || 'Unknown Location').toLowerCase();
-      const matchesSearch =
-        searchQuery === '' || place.includes(searchQuery.toLowerCase());
+    const windowed: Array<[string, number[]]> = Array.from(byDayMagnitude.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-14);
 
-      if (selectedLocation === 'all') {
-        return matchesSearch;
-      }
+    return {
+      labels: windowed.map(([label]) => label.slice(5)),
+      avg: windowed.map(([, magnitudes]) => {
+        return (
+          magnitudes.reduce((sum: number, value: number) => sum + value, 0) /
+          magnitudes.length
+        );
+      }),
+      min: windowed.map(([, magnitudes]) => Math.min(...magnitudes)),
+      max: windowed.map(([, magnitudes]) => Math.max(...magnitudes))
+    };
+  }, [events]);
 
-      const parts = eq.properties.place?.split(',') || [];
-      const mainLocation =
-        parts.length > 1
-          ? parts[parts.length - 1].trim()
-          : eq.properties.place?.trim() || 'Unknown Location';
-      const matchesLocation = mainLocation === selectedLocation;
+  const magnitudeLineChartData = useMemo(
+    () => ({
+      labels: magnitudeTrendData.labels,
+      datasets: [
+        {
+          label: 'Daily avg mag',
+          data: magnitudeTrendData.avg,
+          borderColor: '#0ea5e9',
+          backgroundColor: 'rgba(14, 165, 233, 0.2)',
+          borderWidth: 2,
+          tension: 0.32,
+          pointRadius: 2,
+          pointHoverRadius: 4
+        },
+        {
+          label: 'Daily min mag',
+          data: magnitudeTrendData.min,
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34, 197, 94, 0.15)',
+          borderWidth: 1.8,
+          tension: 0.28,
+          pointRadius: 1.8,
+          pointHoverRadius: 3
+        },
+        {
+          label: 'Daily max mag',
+          data: magnitudeTrendData.max,
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.15)',
+          borderWidth: 1.8,
+          tension: 0.28,
+          pointRadius: 1.8,
+          pointHoverRadius: 3
+        }
+      ]
+    }),
+    [magnitudeTrendData]
+  );
 
-      return matchesSearch && matchesLocation;
-    });
-  }, [latestEarthquakes, searchQuery, selectedLocation]);
+  const statistics = useMemo(() => {
+    const magnitudes = events.map((event) => getMagnitude(event));
+    const depths = events.map((event) => getDepthKm(event));
 
-  const handleEarthquakeClick = (
-    earthquake: FeatureProps,
-    e: React.MouseEvent
-  ) => {
-    // Don't trigger if clicking the USGS button
-    if ((e.target as HTMLElement).closest('button')) {
-      return;
+    if (!magnitudes.length || !depths.length) {
+      return {
+        meanMagnitude: 0,
+        medianMagnitude: 0,
+        p90Magnitude: 0,
+        stdMagnitude: 0,
+        strongEventRate: 0,
+        meanDepth: 0,
+        depthIqr: 0,
+        shallowRate: 0,
+        depthMagCorrelation: 0
+      };
     }
 
-    const {
-      geometry: { coordinates }
-    } = earthquake;
+    const meanMagnitude =
+      magnitudes.reduce((sum, value) => sum + value, 0) / magnitudes.length;
+    const meanDepth = depths.reduce((sum, value) => sum + value, 0) / depths.length;
+    const p75Depth = percentile(depths, 0.75);
+    const p25Depth = percentile(depths, 0.25);
 
-    // Store the selected coordinates in global state
-    const map = (window as any).leafletMap;
-    if (map) {
-      map.setView([coordinates[1], coordinates[0]], 8);
-      // Find and open the popup for this earthquake
-      setTimeout(() => {
-        map.eachLayer((layer: any) => {
-          if (
-            layer.feature &&
-            layer.feature.geometry.coordinates[0] === coordinates[0] &&
-            layer.feature.geometry.coordinates[1] === coordinates[1] &&
-            layer.feature.properties.time === earthquake.properties.time
-          ) {
-            layer.openPopup();
-          }
-        });
-      }, 300);
-    }
-  };
+    return {
+      meanMagnitude,
+      medianMagnitude: percentile(magnitudes, 0.5),
+      p90Magnitude: percentile(magnitudes, 0.9),
+      stdMagnitude: standardDeviation(magnitudes, meanMagnitude),
+      strongEventRate:
+        (magnitudes.filter((magnitude) => magnitude >= 5).length / magnitudes.length) *
+        100,
+      meanDepth,
+      depthIqr: p75Depth - p25Depth,
+      shallowRate:
+        (depths.filter((depth) => depth <= 70).length / depths.length) * 100,
+      depthMagCorrelation: correlation(depths, magnitudes)
+    };
+  }, [events]);
 
-  const handleUSGSClick = (url: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    window.open(url, '_blank');
-  };
+  const magChartData = useMemo(
+    () => ({
+      labels: analytics.byMagnitude.map((item) => item.label),
+      datasets: [
+        {
+          label: 'Magnitude bins',
+          data: analytics.byMagnitude.map((item) => item.count),
+          backgroundColor: [
+            '#69d7c6',
+            '#66d67d',
+            '#96cf51',
+            '#c1c949',
+            '#d5b34f',
+            '#d38f45',
+            '#d06633',
+            '#ce3f21',
+            '#c70f15',
+            '#9f0010'
+          ]
+        }
+      ]
+    }),
+    [analytics.byMagnitude]
+  );
+
+  const depthChartData = useMemo(
+    () => ({
+      labels: analytics.byDepth.map((item) => item.label),
+      datasets: [
+        {
+          label: 'Depth classes',
+          data: analytics.byDepth.map((item) => item.count),
+          backgroundColor: ['#22c55e', '#f59e0b', '#ef4444']
+        }
+      ]
+    }),
+    [analytics.byDepth]
+  );
 
   return (
-    <>
-      <ToggleButton
-        isOpen={isOpen}
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ marginTop: '2%' }}>
-        {isOpen ? '✕ Close' : '📋 Latest'}
-      </ToggleButton>
+    <aside
+      className={cn(
+        'h-[60vh] min-h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-white/92 shadow-lg backdrop-blur-sm transition-all duration-300 md:h-[68vh] lg:flex lg:h-full lg:flex-col',
+        isOpen ? 'opacity-100' : 'pointer-events-none hidden opacity-0 lg:flex'
+      )}>
+      <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
+        <div>
+          <p className="font-heading text-lg font-semibold text-slate-900">
+            Seismic Insights
+          </p>
+          <p className="text-xs text-slate-600">
+            {formatCount(events.length)} filtered / {formatCount(allEventsCount)} total
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => downloadFilteredCSV(events)}
+          disabled={!events.length}>
+          <Download className="mr-1 h-4 w-4" /> CSV
+        </Button>
+      </div>
 
-      <Panel isOpen={isOpen}>
-        <Header>
-          Latest Earthquakes
-          <div
-            style={{
-              fontSize: '14px',
-              fontWeight: 'normal',
-              marginTop: '5px'
-            }}>
-            {filteredEarthquakes.length} of {latestEarthquakes.length}{' '}
-            earthquakes
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2">
+        <button
+          type="button"
+          className={getTabClassName(activeTab, 'overview')}
+          onClick={() => setActiveTab('overview')}>
+          Overview
+        </button>
+        <button
+          type="button"
+          className={getTabClassName(activeTab, 'trends')}
+          onClick={() => setActiveTab('trends')}>
+          Trends
+        </button>
+        <button
+          type="button"
+          className={getTabClassName(activeTab, 'events')}
+          onClick={() => setActiveTab('events')}>
+          Events
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-hidden p-2.5">
+        {activeTab === 'overview' ? (
+          <div className="grid h-full min-h-0 grid-cols-1 gap-2 overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 gap-2">
+              <Card>
+                <CardContent className="p-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Avg Mag</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {analytics.averageMagnitude.toFixed(2)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Min Mag</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {analytics.minMagnitude.toFixed(2)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Max Mag</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {analytics.maxMagnitude.toFixed(2)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Card>
+                <CardContent className="p-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Deepest</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {analytics.deepestKm.toFixed(1)}km
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Shallowest</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {analytics.shallowestKm.toFixed(1)}km
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Card>
+                <CardContent className="flex items-center gap-2 p-2.5">
+                  <Waves className="h-4 w-4 text-cyan-700" />
+                  <div>
+                    <p className="text-xs text-slate-500">Tsunami</p>
+                    <p className="font-semibold text-slate-900">{analytics.tsunamiEvents}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="flex items-center gap-2 p-2.5">
+                  <Radar className="h-4 w-4 text-emerald-700" />
+                  <div>
+                    <p className="text-xs text-slate-500">Significant</p>
+                    <p className="font-semibold text-slate-900">{analytics.significantEvents}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="flex items-center gap-2 p-2.5">
+                  <Siren className="h-4 w-4 text-amber-700" />
+                  <div>
+                    <p className="text-xs text-slate-500">Alerts</p>
+                    <p className="font-semibold text-slate-900">{analytics.alertEvents}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="flex items-center gap-2 p-2.5">
+                  <Zap className="h-4 w-4 text-purple-700" />
+                  <div>
+                    <p className="text-xs text-slate-500">Felt reports</p>
+                    <p className="font-semibold text-slate-900">{analytics.feltReportsTotal}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Statistical profile</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 p-3 pt-0 text-xs text-slate-700">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Median magnitude</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.medianMagnitude.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Std. deviation</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.stdMagnitude.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">P90 magnitude</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.p90Magnitude.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">M≥5 event rate</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.strongEventRate.toFixed(1)}%
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Depth profile</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 p-3 pt-0 text-xs text-slate-700">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Mean depth</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.meanDepth.toFixed(1)}km
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Depth IQR</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.depthIqr.toFixed(1)}km
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Shallow share (&le;70km)</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.shallowRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">Depth-mag correlation</span>
+                    <span className="font-medium text-slate-900">
+                      {statistics.depthMagCorrelation.toFixed(2)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Top regions</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 p-3 pt-0">
+                  {analytics.topRegions.slice(0, 6).map((region) => (
+                    <div
+                      key={region.region}
+                      className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1.5 text-xs">
+                      <span className="max-w-[72%] truncate text-slate-700">{region.region}</span>
+                      <Badge variant="secondary">{region.count}</Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Feed metadata</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1 text-xs text-slate-700 p-3 pt-0">
+                  {metadataRows(metadata).map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">{label}</span>
+                      <span className="text-right text-slate-900">{value}</span>
+                    </div>
+                  ))}
+                  {metadata ? (
+                    <a
+                      href={metadata.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 pt-1 text-cyan-700 underline">
+                      Open feed source <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </Header>
+        ) : null}
 
-        <FilterContainer>
-          <SearchInput
-            type="text"
-            placeholder="Search by location..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <Select
-            value={selectedLocation}
-            onChange={(e) => setSelectedLocation(e.target.value)}>
-            <option value="all">All Locations</option>
-            {uniqueLocations.map((location) => (
-              <option key={location} value={location}>
-                {location}
-              </option>
-            ))}
-          </Select>
-          {(searchQuery || selectedLocation !== 'all') && (
-            <FilterInfo>
-              {filteredEarthquakes.length} result
-              {filteredEarthquakes.length !== 1 ? 's' : ''} found
-            </FilterInfo>
-          )}
-        </FilterContainer>
+        {activeTab === 'trends' ? (
+          <div className="grid h-full min-h-0 grid-cols-1 gap-2 overflow-y-auto pr-1">
+            <Card>
+              <CardHeader className="p-3 pb-1.5">
+                <CardTitle className="inline-flex items-center gap-1.5 text-sm">
+                  <TrendingUp className="h-4 w-4" /> Daily magnitude profile (avg/min/max)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="h-48 pb-2.5 pt-0">
+                <Line
+                  data={magnitudeLineChartData}
+                  options={{
+                    ...chartOptions,
+                    scales: {
+                      ...chartOptions.scales,
+                      y: {
+                        ...chartOptions.scales.y,
+                        suggestedMin: 0,
+                        suggestedMax: 8
+                      }
+                    }
+                  }}
+                />
+              </CardContent>
+            </Card>
 
-        {filteredEarthquakes.length === 0 ? (
-          <NoData>
-            {latestEarthquakes.length === 0
-              ? 'No earthquake data available'
-              : 'No earthquakes match your search criteria'}
-          </NoData>
-        ) : (
-          filteredEarthquakes.map((earthquake: FeatureProps) => {
-            const { properties, geometry } = earthquake;
-            return (
-              <EarthquakeItem
-                key={`${properties.time}-${geometry.coordinates[0]}-${geometry.coordinates[1]}`}
-                onClick={(e) => handleEarthquakeClick(earthquake, e)}>
-                <Title>
-                  <MagnitudeBadge magnitude={properties.mag}>
-                    M{properties.mag.toFixed(1)}
-                  </MagnitudeBadge>
-                  {properties.place || 'Unknown Location'}
-                </Title>
-                <Detail>
-                  <strong>Time:</strong> {timeConverterToHKT(properties.time)}
-                </Detail>
-                <Detail>
-                  <strong>Depth:</strong> {geometry.coordinates[2].toFixed(1)}{' '}
-                  km
-                </Detail>
-                <Detail>
-                  <strong>Coordinates:</strong>{' '}
-                  {geometry.coordinates[1].toFixed(3)},{' '}
-                  {geometry.coordinates[0].toFixed(3)}
-                </Detail>
-                <USGSButton onClick={(e) => handleUSGSClick(properties.url, e)}>
-                  📊 View USGS Details
-                </USGSButton>
-              </EarthquakeItem>
-            );
-          })
-        )}
-      </Panel>
-    </>
+            <Card>
+              <CardHeader className="p-3 pb-1.5">
+                <CardTitle className="inline-flex items-center gap-1.5 text-sm">
+                  <TrendingUp className="h-4 w-4" /> Daily activity trend
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="h-44 pb-2.5 pt-0">
+                <Bar data={dayChartData} options={chartOptions} />
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Magnitude spread</CardTitle>
+                </CardHeader>
+                <CardContent className="h-52 pb-2.5 pt-0">
+                  <Doughnut
+                    data={magChartData}
+                    options={{ responsive: true, maintainAspectRatio: false }}
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Depth distribution</CardTitle>
+                </CardHeader>
+                <CardContent className="h-52 pb-2.5 pt-0">
+                  <Doughnut
+                    data={depthChartData}
+                    options={{ responsive: true, maintainAspectRatio: false }}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === 'events' ? (
+          <div className="grid h-full min-h-0 grid-cols-1 gap-2 xl:grid-cols-[1.1fr_0.9fr]">
+            <Card className="min-h-0">
+              <CardHeader className="p-3 pb-1.5">
+                <CardTitle className="text-sm">Recent event navigator</CardTitle>
+              </CardHeader>
+              <CardContent className="h-[calc(100%-3rem)] space-y-1.5 overflow-y-auto pb-2.5 pt-0">
+                {events.slice(0, 50).map((event) => {
+                  const depth = getDepthKm(event);
+                  const isSelected = selectedEarthquakeId === event.id;
+
+                  return (
+                    <button
+                      type="button"
+                      key={event.id}
+                      onClick={() => onSelectEarthquake(event)}
+                      className={cn(
+                        'w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+                        isSelected
+                          ? 'border-cyan-400 bg-cyan-50'
+                          : 'border-slate-200 hover:bg-slate-50'
+                      )}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="line-clamp-1 text-sm font-medium text-slate-900">
+                          {event.properties.place}
+                        </p>
+                        <Badge
+                          variant={event.properties.tsunami === 1 ? 'warning' : 'outline'}>
+                          M{getMagnitude(event).toFixed(1)}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                        <span>{extractRegion(event.properties.place)}</span>
+                        <span>{formatHKT(event.properties.time)}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Depth {depth.toFixed(1)}km | {getDepthCategory(depth)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </CardContent>
+            </Card>
+
+            <Card className="min-h-0">
+              <CardHeader className="p-3 pb-1.5">
+                <CardTitle className="text-sm">Selected event details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 overflow-y-auto pb-2.5 pt-0 text-sm text-slate-700">
+                {selectedEarthquake ? (
+                  <>
+                    <p className="font-medium text-slate-900">
+                      {selectedEarthquake.properties.title}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <span>Magnitude type: {selectedEarthquake.properties.magType}</span>
+                      <span>Network: {selectedEarthquake.properties.net || 'N/A'}</span>
+                      <span>Code: {selectedEarthquake.properties.code || 'N/A'}</span>
+                      <span>Status: {selectedEarthquake.properties.status || 'N/A'}</span>
+                      <span>Sig: {selectedEarthquake.properties.sig}</span>
+                      <span>NST: {selectedEarthquake.properties.nst ?? 'N/A'}</span>
+                      <span>CDI: {selectedEarthquake.properties.cdi ?? 'N/A'}</span>
+                      <span>MMI: {selectedEarthquake.properties.mmi ?? 'N/A'}</span>
+                      <span>RMS: {selectedEarthquake.properties.rms ?? 'N/A'}</span>
+                      <span>Gap: {selectedEarthquake.properties.gap ?? 'N/A'}</span>
+                      <span>DMin: {selectedEarthquake.properties.dmin ?? 'N/A'}</span>
+                      <span>Updated: {formatHKT(selectedEarthquake.properties.updated)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => window.open(selectedEarthquake.properties.url, '_blank')}>
+                        <ExternalLink className="mr-1 h-4 w-4" /> USGS
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          const [longitude, latitude] = selectedEarthquake.geometry.coordinates;
+                          window.open(
+                            `https://maps.google.com/maps?z=6&t=m&q=loc:${latitude}+${longitude}`,
+                            '_blank'
+                          );
+                        }}>
+                        <MapPinned className="mr-1 h-4 w-4" /> Google Maps
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Select an event from the left list to inspect full details.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
+      </div>
+    </aside>
   );
 }

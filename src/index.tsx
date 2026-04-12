@@ -1,10 +1,7 @@
 /* eslint-disable import/no-unresolved */
-/* eslint-disable import/no-webpack-loader-syntax */
 import { createRoot } from 'react-dom/client';
-import 'bootstrap/dist/css/bootstrap.css';
-import '!style-loader!css-loader!bootstrap/dist/css/bootstrap.css';
 import 'leaflet/dist/leaflet.css';
-import 'font-awesome/css/font-awesome.min.css';
+import './index.css';
 
 import App from './App';
 

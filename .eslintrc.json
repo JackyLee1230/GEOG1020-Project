@@ -48,7 +48,12 @@
     "react/jsx-closing-bracket-location": "off",
     "no-unneeded-ternary": "off",
     "react/react-in-jsx-scope": "off",
-    "no-restricted-exports": "off"
+    "no-restricted-exports": "off",
+    "react/jsx-props-no-spreading": "off",
+    "react/prop-types": "off",
+    "react/button-has-type": "off",
+    "jsx-a11y/heading-has-content": "off",
+    "prefer-destructuring": "off"
   },
   "overrides": [
     {

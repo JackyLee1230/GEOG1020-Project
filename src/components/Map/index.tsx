@@ -1,144 +1,101 @@
 import {
-  MapContainer,
-  TileLayer,
-  LayersControl,
   GeoJSON,
-  ScaleControl
+  LayersControl,
+  MapContainer,
+  ScaleControl,
+  TileLayer
 } from 'react-leaflet';
-import { useEffect } from 'react';
-import styled from 'styled-components';
+import type { GeoJsonObject } from 'geojson';
+import tectonicPlates from '../../PB2002_boundaries.json';
+import { EarthquakeFeature } from '../../types/earthquake';
 import Earthquakes from './Earthquakes';
 import Legend from './Legend';
-import tectonicPlates from '../../PB2002_boundaries.json';
 import LocationMarker from './LocationMarker';
-import LatestEarthquakes from '../LatestEarthquakes';
-import MapController from './MapController';
 
-const mapHeight = { height: 'calc(100vh - 64px)', marginTop: '64px' };
-
-const MapWrapper = styled.div`
-  width: 100%;
-  height: 100vh;
-  position: fixed;
-
-  @media only screen and (max-width: 768px) {
-    height: 100vh;
-  }
-`;
+interface MapProps {
+  events: EarthquakeFeature[];
+  selectedEarthquakeId: string | null;
+  showLegend: boolean;
+  onSelectEarthquake: (feature: EarthquakeFeature) => void;
+}
 
 const tileLayers = [
   {
     id: 1,
-    name: 'Map Nik',
+    name: 'Carto Light',
     attribution:
       '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    checked: false
-  },
-  {
-    id: 2,
-    name: 'Google Street Map',
-    attribution: '&copy; Google',
-    url: 'http://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=en',
     checked: true
   },
   {
+    id: 2,
+    name: 'OpenStreetMap',
+    attribution:
+      '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    checked: false
+  },
+  {
     id: 3,
-    name: 'Google Satellite Map',
+    name: 'Google Terrain',
     attribution: '&copy; Google',
-    url: 'http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}&hl=en',
+    url: 'https://mt1.google.com/vt/lyrs=t&x={x}&y={y}&z={z}&hl=en',
     checked: false
   },
   {
     id: 4,
-    name: 'Google Terrain Map',
+    name: 'Google Satellite',
     attribution: '&copy; Google',
-    url: 'http://mt1.google.com/vt/lyrs=t&x={x}&y={y}&z={z}&hl=en',
-    checked: false
-  },
-  {
-    id: 5,
-    name: 'Open Street Map',
-    attribution:
-      '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}&hl=en',
     checked: false
   }
 ];
 
 const tectonicPlatesStyle = {
-  color: 'darkorange',
-  weight: 2
+  color: '#f97316',
+  weight: 1.8,
+  opacity: 0.9
 };
 
-const markerColorByMagnitude = (magnitude: number): string => {
-  const magColors: string[] = [
-    '#6FCCB4',
-    '#68D275',
-    '#95D058',
-    '#C2CC49',
-    '#CCB659',
-    '#C69344',
-    '#C6652B',
-    '#CD3217',
-    '#CC0103',
-    'red'
-  ];
-  if (magnitude <= 1) return magColors[0];
-  if (magnitude > 1 && magnitude <= 2) return magColors[1];
-  if (magnitude > 2 && magnitude <= 3) return magColors[2];
-  if (magnitude > 3 && magnitude <= 4) return magColors[3];
-  if (magnitude > 4 && magnitude <= 5) return magColors[4];
-  if (magnitude > 5 && magnitude <= 6) return magColors[5];
-  if (magnitude > 6 && magnitude <= 7) return magColors[6];
-  if (magnitude > 7 && magnitude <= 8) return magColors[7];
-  if (magnitude > 8 && magnitude <= 9) return magColors[8];
-  return magColors[9];
-};
-
-const geojsonMarkerOptions = (magnitude: number): Object => ({
-  radius: 2.4 * magnitude,
-  fillColor: markerColorByMagnitude(magnitude),
-  color: 'grey',
-  weight: 0.5,
-  opacity: 1,
-  fillOpacity: 0.8
-});
-
-export { markerColorByMagnitude, geojsonMarkerOptions };
-
-export default function Map() {
-  useEffect(() => {
-    const attribution = document.querySelector('.leaflet-control-attribution');
-    // document.getElementsByClassName( 'leaflet-control-attribution' )[0].style.display = 'none'
-    if (attribution) {
-      attribution.remove();
-    }
-  }, []);
-
+export default function Map({
+  events,
+  selectedEarthquakeId,
+  showLegend,
+  onSelectEarthquake
+}: MapProps) {
   return (
-    <MapWrapper>
-      <MapContainer center={[0, 0]} zoom={3} style={mapHeight}>
-        <MapController />
+    <div className="h-[60vh] min-h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg md:h-[68vh] lg:h-full">
+      <MapContainer
+        center={[0, 0]}
+        zoom={2.4}
+        className="h-full w-full"
+        scrollWheelZoom
+        minZoom={2}>
         <LayersControl position="topright">
           {tileLayers.map(({ id, name, attribution, url, checked }) => (
             <LayersControl.BaseLayer key={id} name={name} checked={checked}>
               <TileLayer attribution={attribution} url={url} />
             </LayersControl.BaseLayer>
           ))}
+
           <LayersControl.Overlay checked name="Tectonic Plates">
             <GeoJSON
-              data={tectonicPlates as GeoJSON.GeoJsonObject}
+              data={tectonicPlates as GeoJsonObject}
               style={tectonicPlatesStyle}
             />
           </LayersControl.Overlay>
         </LayersControl>
+
+        <Earthquakes
+          events={events}
+          selectedEarthquakeId={selectedEarthquakeId}
+          onSelectEarthquake={onSelectEarthquake}
+        />
         <LocationMarker />
-        <Earthquakes />
         <ScaleControl />
-        <Legend />
+        {showLegend ? <Legend /> : null}
       </MapContainer>
-      <LatestEarthquakes />
-    </MapWrapper>
+    </div>
   );
 }

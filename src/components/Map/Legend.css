@@ -1,48 +1,39 @@
-.info {
-  padding: 6px 8px;
-  font: 14px/16px Arial, Helvetica, sans-serif;
-  background: lightgrey;
-  box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-  border-radius: 5px;
-}
-
-.info h4 {
-  margin: 0px;
-  color: black;
-  font-weight: bold;
-  font-size: 16px;
-}
-
-.legend {
+.eq-legend {
+  padding: 8px 10px;
+  font: 13px/18px 'DM Sans', sans-serif;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.18);
+  border-radius: 12px;
   text-align: left;
-  line-height: 18px;
-  color: #555;
+  backdrop-filter: blur(6px);
 }
 
-.legend i {
+.eq-legend h4 {
+  margin: 0 0 6px;
+  font-family: 'Sora', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.eq-legend i {
   width: 18px;
   height: 18px;
   float: left;
-  font-size: medium;
+  border-radius: 4px;
   margin-right: 8px;
-  opacity: 0.7;
+  opacity: 0.9;
 }
 
 @media only screen and (max-width: 768px) {
-  .info {
-    padding: 4px 6px;
-    font-size: 12px;
-  }
-  
-  .info h4 {
-    font-size: 13px;
-  }
-  
-  .legend {
+  .eq-legend {
+    padding: 6px 8px;
+    font-size: 11px;
     line-height: 16px;
   }
-  
-  .legend i {
+
+  .eq-legend i {
     width: 14px;
     height: 14px;
     margin-right: 5px;

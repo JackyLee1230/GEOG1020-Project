@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Sora:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 201 56% 97%;
+  --foreground: 217 33% 17%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  color: hsl(var(--foreground));
+  background:
+    radial-gradient(circle at 12% -5%, rgba(56, 189, 248, 0.25), rgba(56, 189, 248, 0) 35%),
+    radial-gradient(circle at 85% 5%, rgba(251, 191, 36, 0.2), rgba(251, 191, 36, 0) 28%),
+    linear-gradient(180deg, #f8fcff 0%, #f3f7ff 50%, #eef4ff 100%);
+  background-attachment: fixed;
+}
+
+.font-heading {
+  font-family: 'Sora', sans-serif;
+}
+
+.leaflet-container {
+  font-family: 'DM Sans', sans-serif;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+
+.leaflet-control-layers {
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
