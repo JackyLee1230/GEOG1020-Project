@@ -1,5 +1,7 @@
 export type AlertLevel = 'green' | 'yellow' | 'orange' | 'red' | null;
 
+export type EarthquakeSource = 'usgs' | 'geonet' | 'geofon';
+
 export interface EarthquakeMetadata {
   generated: number;
   url: string;
@@ -7,6 +9,10 @@ export interface EarthquakeMetadata {
   status: number;
   api: string;
   count: number;
+  providers?: EarthquakeSource[];
+  providerCounts?: Partial<Record<EarthquakeSource, number>>;
+  dedupedFrom?: number;
+  warnings?: string[];
 }
 
 export interface EarthquakeGeometry {
@@ -41,6 +47,10 @@ export interface EarthquakeProperties {
   magType: string;
   type: string;
   title: string;
+  source?: EarthquakeSource;
+  sourceContributors?: EarthquakeSource[];
+  confidenceScore?: number;
+  sourceEventUrl?: string;
 }
 
 export interface EarthquakeFeature {

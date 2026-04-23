@@ -23,13 +23,24 @@ import {
 import {
   EarthquakeAnalytics,
   EarthquakeFeature,
-  EarthquakeMetadata
+  EarthquakeMetadata,
+  EarthquakeSource
 } from '../../types/earthquake';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../ui';
 
 Chart.register(...registerables);
 
 type InsightTab = 'overview' | 'trends' | 'events';
+
+interface SourceInsight {
+  source: EarthquakeSource;
+  count: number;
+  averageMagnitude: number;
+  averageDepthKm: number;
+  averageConfidence: number;
+  tsunamiEvents: number;
+  significantEvents: number;
+}
 
 interface LatestEarthquakesProps {
   isOpen: boolean;
@@ -68,6 +79,10 @@ const formatCount = (value: unknown): string => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toLocaleString() : '0';
 };
+
+const formatSourceLabel = (value: string): string => value.toUpperCase();
+
+const sourcePalette = ['#0ea5e9', '#14b8a6', '#f97316', '#8b5cf6', '#eab308'];
 
 const percentile = (values: number[], rank: number): number => {
   if (!values.length) return 0;
@@ -135,13 +150,27 @@ const downloadFilteredCSV = (events: EarthquakeFeature[]) => {
 const metadataRows = (metadata: EarthquakeMetadata | null) => {
   if (!metadata) return [];
 
-  return [
+  const providerSummary = Object.entries(metadata.providerCounts ?? {})
+    .filter(([, count]) => Number.isFinite(Number(count)) && Number(count) > 0)
+    .map(
+      ([source, count]) => `${formatSourceLabel(source)}: ${formatCount(count)}`
+    )
+    .join(', ');
+
+  const rows: Array<[string, string]> = [
     ['Feed title', metadata.title],
     ['API version', metadata.api],
     ['Server status', String(metadata.status)],
     ['Feed event count', formatCount(metadata.count)],
     ['Generated (HKT)', formatHKT(metadata.generated)]
   ];
+
+  if (providerSummary) rows.push(['Provider events', providerSummary]);
+  if (metadata.dedupedFrom) {
+    rows.push(['Deduped from', formatCount(metadata.dedupedFrom)]);
+  }
+
+  return rows;
 };
 
 const getTabClassName = (activeTab: InsightTab, tab: InsightTab) => {
@@ -197,7 +226,9 @@ export default function LatestEarthquakes({
       byDayMagnitude.set(dayLabel, current);
     });
 
-    const windowed: Array<[string, number[]]> = Array.from(byDayMagnitude.entries())
+    const windowed: Array<[string, number[]]> = Array.from(
+      byDayMagnitude.entries()
+    )
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-14);
 
@@ -273,7 +304,8 @@ export default function LatestEarthquakes({
 
     const meanMagnitude =
       magnitudes.reduce((sum, value) => sum + value, 0) / magnitudes.length;
-    const meanDepth = depths.reduce((sum, value) => sum + value, 0) / depths.length;
+    const meanDepth =
+      depths.reduce((sum, value) => sum + value, 0) / depths.length;
     const p75Depth = percentile(depths, 0.75);
     const p25Depth = percentile(depths, 0.25);
 
@@ -283,7 +315,8 @@ export default function LatestEarthquakes({
       p90Magnitude: percentile(magnitudes, 0.9),
       stdMagnitude: standardDeviation(magnitudes, meanMagnitude),
       strongEventRate:
-        (magnitudes.filter((magnitude) => magnitude >= 5).length / magnitudes.length) *
+        (magnitudes.filter((magnitude) => magnitude >= 5).length /
+          magnitudes.length) *
         100,
       meanDepth,
       depthIqr: p75Depth - p25Depth,
@@ -292,6 +325,69 @@ export default function LatestEarthquakes({
       depthMagCorrelation: correlation(depths, magnitudes)
     };
   }, [events]);
+
+  const sourceInsights = useMemo((): SourceInsight[] => {
+    const sourceMetrics = new Map<
+      EarthquakeSource,
+      {
+        count: number;
+        magnitudeSum: number;
+        depthSum: number;
+        confidenceSum: number;
+        tsunamiEvents: number;
+        significantEvents: number;
+      }
+    >();
+
+    events.forEach((event) => {
+      const source = event.properties.source ?? 'usgs';
+      const existing = sourceMetrics.get(source) ?? {
+        count: 0,
+        magnitudeSum: 0,
+        depthSum: 0,
+        confidenceSum: 0,
+        tsunamiEvents: 0,
+        significantEvents: 0
+      };
+
+      existing.count += 1;
+      existing.magnitudeSum += getMagnitude(event);
+      existing.depthSum += getDepthKm(event);
+      existing.confidenceSum += event.properties.confidenceScore ?? 0;
+      if (event.properties.tsunami === 1) existing.tsunamiEvents += 1;
+      if (event.properties.sig >= 600) existing.significantEvents += 1;
+
+      sourceMetrics.set(source, existing);
+    });
+
+    return Array.from(sourceMetrics.entries())
+      .map(([source, metrics]) => ({
+        source,
+        count: metrics.count,
+        averageMagnitude: metrics.magnitudeSum / metrics.count,
+        averageDepthKm: metrics.depthSum / metrics.count,
+        averageConfidence: metrics.confidenceSum / metrics.count,
+        tsunamiEvents: metrics.tsunamiEvents,
+        significantEvents: metrics.significantEvents
+      }))
+      .sort((left, right) => right.count - left.count);
+  }, [events]);
+
+  const sourceCountChartData = useMemo(
+    () => ({
+      labels: sourceInsights.map((item) => formatSourceLabel(item.source)),
+      datasets: [
+        {
+          label: 'Events / source',
+          data: sourceInsights.map((item) => item.count),
+          backgroundColor: sourceInsights.map(
+            (_, index) => sourcePalette[index % sourcePalette.length]
+          )
+        }
+      ]
+    }),
+    [sourceInsights]
+  );
 
   const magChartData = useMemo(
     () => ({
@@ -335,7 +431,7 @@ export default function LatestEarthquakes({
   return (
     <aside
       className={cn(
-        'h-[60vh] min-h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-white/92 shadow-lg backdrop-blur-sm transition-all duration-300 md:h-[68vh] lg:flex lg:h-full lg:flex-col',
+        'flex h-[60vh] min-h-[440px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/92 shadow-lg backdrop-blur-sm transition-all duration-300 md:h-[68vh] lg:h-full',
         isOpen ? 'opacity-100' : 'pointer-events-none hidden opacity-0 lg:flex'
       )}>
       <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
@@ -344,7 +440,8 @@ export default function LatestEarthquakes({
             Seismic Insights
           </p>
           <p className="text-xs text-slate-600">
-            {formatCount(events.length)} filtered / {formatCount(allEventsCount)} total
+            {formatCount(events.length)} filtered /{' '}
+            {formatCount(allEventsCount)} total
           </p>
         </div>
         <Button
@@ -383,7 +480,9 @@ export default function LatestEarthquakes({
             <div className="grid grid-cols-3 gap-2">
               <Card>
                 <CardContent className="p-2.5">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Avg Mag</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Avg Mag
+                  </p>
                   <p className="mt-0.5 text-lg font-semibold text-slate-900">
                     {analytics.averageMagnitude.toFixed(2)}
                   </p>
@@ -391,7 +490,9 @@ export default function LatestEarthquakes({
               </Card>
               <Card>
                 <CardContent className="p-2.5">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Min Mag</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Min Mag
+                  </p>
                   <p className="mt-0.5 text-lg font-semibold text-slate-900">
                     {analytics.minMagnitude.toFixed(2)}
                   </p>
@@ -399,7 +500,9 @@ export default function LatestEarthquakes({
               </Card>
               <Card>
                 <CardContent className="p-2.5">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Max Mag</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Max Mag
+                  </p>
                   <p className="mt-0.5 text-lg font-semibold text-slate-900">
                     {analytics.maxMagnitude.toFixed(2)}
                   </p>
@@ -410,7 +513,9 @@ export default function LatestEarthquakes({
             <div className="grid grid-cols-2 gap-2">
               <Card>
                 <CardContent className="p-2.5">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Deepest</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Deepest
+                  </p>
                   <p className="mt-0.5 text-lg font-semibold text-slate-900">
                     {analytics.deepestKm.toFixed(1)}km
                   </p>
@@ -418,7 +523,9 @@ export default function LatestEarthquakes({
               </Card>
               <Card>
                 <CardContent className="p-2.5">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Shallowest</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Shallowest
+                  </p>
                   <p className="mt-0.5 text-lg font-semibold text-slate-900">
                     {analytics.shallowestKm.toFixed(1)}km
                   </p>
@@ -432,7 +539,9 @@ export default function LatestEarthquakes({
                   <Waves className="h-4 w-4 text-cyan-700" />
                   <div>
                     <p className="text-xs text-slate-500">Tsunami</p>
-                    <p className="font-semibold text-slate-900">{analytics.tsunamiEvents}</p>
+                    <p className="font-semibold text-slate-900">
+                      {analytics.tsunamiEvents}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -441,7 +550,9 @@ export default function LatestEarthquakes({
                   <Radar className="h-4 w-4 text-emerald-700" />
                   <div>
                     <p className="text-xs text-slate-500">Significant</p>
-                    <p className="font-semibold text-slate-900">{analytics.significantEvents}</p>
+                    <p className="font-semibold text-slate-900">
+                      {analytics.significantEvents}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -450,7 +561,9 @@ export default function LatestEarthquakes({
                   <Siren className="h-4 w-4 text-amber-700" />
                   <div>
                     <p className="text-xs text-slate-500">Alerts</p>
-                    <p className="font-semibold text-slate-900">{analytics.alertEvents}</p>
+                    <p className="font-semibold text-slate-900">
+                      {analytics.alertEvents}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -459,7 +572,9 @@ export default function LatestEarthquakes({
                   <Zap className="h-4 w-4 text-purple-700" />
                   <div>
                     <p className="text-xs text-slate-500">Felt reports</p>
-                    <p className="font-semibold text-slate-900">{analytics.feltReportsTotal}</p>
+                    <p className="font-semibold text-slate-900">
+                      {analytics.feltReportsTotal}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -516,13 +631,17 @@ export default function LatestEarthquakes({
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500">Shallow share (&le;70km)</span>
+                    <span className="text-slate-500">
+                      Shallow share (&le;70km)
+                    </span>
                     <span className="font-medium text-slate-900">
                       {statistics.shallowRate.toFixed(1)}%
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500">Depth-mag correlation</span>
+                    <span className="text-slate-500">
+                      Depth-mag correlation
+                    </span>
                     <span className="font-medium text-slate-900">
                       {statistics.depthMagCorrelation.toFixed(2)}
                     </span>
@@ -539,7 +658,9 @@ export default function LatestEarthquakes({
                     <div
                       key={region.region}
                       className="flex items-center justify-between rounded-md border border-slate-200 px-2 py-1.5 text-xs">
-                      <span className="max-w-[72%] truncate text-slate-700">{region.region}</span>
+                      <span className="max-w-[72%] truncate text-slate-700">
+                        {region.region}
+                      </span>
                       <Badge variant="secondary">{region.count}</Badge>
                     </div>
                   ))}
@@ -552,7 +673,9 @@ export default function LatestEarthquakes({
                 </CardHeader>
                 <CardContent className="space-y-1 text-xs text-slate-700 p-3 pt-0">
                   {metadataRows(metadata).map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-2">
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-2">
                       <span className="text-slate-500">{label}</span>
                       <span className="text-right text-slate-900">{value}</span>
                     </div>
@@ -568,16 +691,81 @@ export default function LatestEarthquakes({
                   ) : null}
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="text-sm">Source analysis</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 p-3 pt-0">
+                  {sourceInsights.length ? (
+                    sourceInsights.slice(0, 6).map((item) => (
+                      <div
+                        key={item.source}
+                        className="rounded-md border border-slate-200 px-2 py-1.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-900">
+                            {formatSourceLabel(item.source)}
+                          </span>
+                          <Badge variant="secondary">{item.count}</Badge>
+                        </div>
+                        <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                          <span>Avg M {item.averageMagnitude.toFixed(2)}</span>
+                          <span>Avg depth {item.averageDepthKm.toFixed(1)}km</span>
+                          <span>
+                            Confidence {Math.round(item.averageConfidence)}/100
+                          </span>
+                          <span>
+                            Tsunami {item.tsunamiEvents} | Sig{' '}
+                            {item.significantEvents}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      No source-level analytics available for this filtered
+                      view.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </div>
         ) : null}
 
         {activeTab === 'trends' ? (
           <div className="grid h-full min-h-0 grid-cols-1 gap-2 overflow-y-auto pr-1">
+            {sourceInsights.length ? (
+              <Card>
+                <CardHeader className="p-3 pb-1.5">
+                  <CardTitle className="inline-flex items-center gap-1.5 text-sm">
+                    <TrendingUp className="h-4 w-4" /> Source contribution
+                    (filtered)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="h-44 pb-2.5 pt-0">
+                  <Bar
+                    data={sourceCountChartData}
+                    options={{
+                      ...chartOptions,
+                      scales: {
+                        ...chartOptions.scales,
+                        y: {
+                          ...chartOptions.scales.y,
+                          beginAtZero: true
+                        }
+                      }
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card>
               <CardHeader className="p-3 pb-1.5">
                 <CardTitle className="inline-flex items-center gap-1.5 text-sm">
-                  <TrendingUp className="h-4 w-4" /> Daily magnitude profile (avg/min/max)
+                  <TrendingUp className="h-4 w-4" /> Daily magnitude profile
+                  (avg/min/max)
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-48 pb-2.5 pt-0">
@@ -640,7 +828,9 @@ export default function LatestEarthquakes({
           <div className="grid h-full min-h-0 grid-cols-1 gap-2 xl:grid-cols-[1.1fr_0.9fr]">
             <Card className="min-h-0">
               <CardHeader className="p-3 pb-1.5">
-                <CardTitle className="text-sm">Recent event navigator</CardTitle>
+                <CardTitle className="text-sm">
+                  Recent event navigator
+                </CardTitle>
               </CardHeader>
               <CardContent className="h-[calc(100%-3rem)] space-y-1.5 overflow-y-auto pb-2.5 pt-0">
                 {events.slice(0, 50).map((event) => {
@@ -663,7 +853,11 @@ export default function LatestEarthquakes({
                           {event.properties.place}
                         </p>
                         <Badge
-                          variant={event.properties.tsunami === 1 ? 'warning' : 'outline'}>
+                          variant={
+                            event.properties.tsunami === 1
+                              ? 'warning'
+                              : 'outline'
+                          }>
                           M{getMagnitude(event).toFixed(1)}
                         </Badge>
                       </div>
@@ -674,6 +868,12 @@ export default function LatestEarthquakes({
                       <div className="mt-1 text-xs text-slate-500">
                         Depth {depth.toFixed(1)}km | {getDepthCategory(depth)}
                       </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Source{' '}
+                        {(event.properties.source ?? 'usgs').toUpperCase()} |
+                        Confidence{' '}
+                        {Math.round(event.properties.confidenceScore ?? 0)}/100
+                      </div>
                     </button>
                   );
                 })}
@@ -682,7 +882,9 @@ export default function LatestEarthquakes({
 
             <Card className="min-h-0">
               <CardHeader className="p-3 pb-1.5">
-                <CardTitle className="text-sm">Selected event details</CardTitle>
+                <CardTitle className="text-sm">
+                  Selected event details
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 overflow-y-auto pb-2.5 pt-0 text-sm text-slate-700">
                 {selectedEarthquake ? (
@@ -691,31 +893,73 @@ export default function LatestEarthquakes({
                       {selectedEarthquake.properties.title}
                     </p>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <span>Magnitude type: {selectedEarthquake.properties.magType}</span>
-                      <span>Network: {selectedEarthquake.properties.net || 'N/A'}</span>
-                      <span>Code: {selectedEarthquake.properties.code || 'N/A'}</span>
-                      <span>Status: {selectedEarthquake.properties.status || 'N/A'}</span>
+                      <span>
+                        Source:{' '}
+                        {formatSourceLabel(
+                          selectedEarthquake.properties.source ?? 'usgs'
+                        )}
+                      </span>
+                      <span>
+                        Confidence:{' '}
+                        {Math.round(
+                          selectedEarthquake.properties.confidenceScore ?? 0
+                        )}
+                        /100
+                      </span>
+                      <span>
+                        Magnitude type: {selectedEarthquake.properties.magType}
+                      </span>
+                      <span>
+                        Network: {selectedEarthquake.properties.net || 'N/A'}
+                      </span>
+                      <span>
+                        Code: {selectedEarthquake.properties.code || 'N/A'}
+                      </span>
+                      <span>
+                        Status: {selectedEarthquake.properties.status || 'N/A'}
+                      </span>
                       <span>Sig: {selectedEarthquake.properties.sig}</span>
-                      <span>NST: {selectedEarthquake.properties.nst ?? 'N/A'}</span>
-                      <span>CDI: {selectedEarthquake.properties.cdi ?? 'N/A'}</span>
-                      <span>MMI: {selectedEarthquake.properties.mmi ?? 'N/A'}</span>
-                      <span>RMS: {selectedEarthquake.properties.rms ?? 'N/A'}</span>
-                      <span>Gap: {selectedEarthquake.properties.gap ?? 'N/A'}</span>
-                      <span>DMin: {selectedEarthquake.properties.dmin ?? 'N/A'}</span>
-                      <span>Updated: {formatHKT(selectedEarthquake.properties.updated)}</span>
+                      <span>
+                        NST: {selectedEarthquake.properties.nst ?? 'N/A'}
+                      </span>
+                      <span>
+                        CDI: {selectedEarthquake.properties.cdi ?? 'N/A'}
+                      </span>
+                      <span>
+                        MMI: {selectedEarthquake.properties.mmi ?? 'N/A'}
+                      </span>
+                      <span>
+                        RMS: {selectedEarthquake.properties.rms ?? 'N/A'}
+                      </span>
+                      <span>
+                        Gap: {selectedEarthquake.properties.gap ?? 'N/A'}
+                      </span>
+                      <span>
+                        DMin: {selectedEarthquake.properties.dmin ?? 'N/A'}
+                      </span>
+                      <span>
+                        Updated:{' '}
+                        {formatHKT(selectedEarthquake.properties.updated)}
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => window.open(selectedEarthquake.properties.url, '_blank')}>
-                        <ExternalLink className="mr-1 h-4 w-4" /> USGS
+                        onClick={() =>
+                          window.open(
+                            selectedEarthquake.properties.url,
+                            '_blank'
+                          )
+                        }>
+                        <ExternalLink className="mr-1 h-4 w-4" /> Source Page
                       </Button>
                       <Button
                         size="sm"
                         variant="secondary"
                         onClick={() => {
-                          const [longitude, latitude] = selectedEarthquake.geometry.coordinates;
+                          const [longitude, latitude] =
+                            selectedEarthquake.geometry.coordinates;
                           window.open(
                             `https://maps.google.com/maps?z=6&t=m&q=loc:${latitude}+${longitude}`,
                             '_blank'

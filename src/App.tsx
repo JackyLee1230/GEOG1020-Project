@@ -1,11 +1,5 @@
 import { QueryClientProvider, useQuery } from '@tanstack/react-query';
-import {
-  Component,
-  ErrorInfo,
-  ReactNode,
-  useEffect,
-  useMemo
-} from 'react';
+import { Component, ErrorInfo, ReactNode, useEffect, useMemo } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 
 import { getEarthquakes } from './api/earthquakes';
@@ -69,10 +63,12 @@ class AppErrorBoundary extends Component<
     if (hasError) {
       return (
         <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-red-200 bg-red-50 p-6 text-red-900">
-          <h1 className="font-heading text-2xl font-semibold">App Runtime Error</h1>
+          <h1 className="font-heading text-2xl font-semibold">
+            App Runtime Error
+          </h1>
           <p className="mt-2 text-sm">
-            A component crashed during rendering. Reload the page after this fix,
-            and if this persists, share this message:
+            A component crashed during rendering. Reload the page after this
+            fix, and if this persists, share this message:
           </p>
           <pre className="mt-3 overflow-x-auto rounded-md bg-red-100 p-3 text-xs">
             {message}
@@ -210,7 +206,7 @@ function AppContent() {
             <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800">
               <p className="inline-flex items-center gap-2 font-medium">
                 <AlertTriangle className="h-5 w-5" /> Failed to load data from
-                USGS
+                earthquake providers
               </p>
               <p className="mt-2 text-sm">{(error as Error).message}</p>
             </div>

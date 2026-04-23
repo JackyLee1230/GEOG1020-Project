@@ -51,6 +51,7 @@ export default function Earthquakes({
         const magnitude = getMagnitude(feature);
         const region = extractRegion(feature.properties.place);
         const isSelected = feature.id === selectedEarthquakeId;
+        const sourceLabel = (feature.properties.source ?? 'usgs').toUpperCase();
 
         return (
           <CircleMarker
@@ -97,12 +98,19 @@ export default function Earthquakes({
                 <p>
                   <strong>Significance:</strong> {feature.properties.sig}
                 </p>
+                <p>
+                  <strong>Source:</strong> {sourceLabel}
+                </p>
+                <p>
+                  <strong>Confidence:</strong>{' '}
+                  {Math.round(feature.properties.confidenceScore ?? 0)} / 100
+                </p>
                 <a
                   className="font-medium text-cyan-700 underline"
                   href={feature.properties.url}
                   target="_blank"
                   rel="noreferrer">
-                  Open USGS Event Page
+                  Open Source Event Page
                 </a>
               </div>
             </Popup>
